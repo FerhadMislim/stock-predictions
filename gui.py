@@ -1,55 +1,82 @@
+import pandas as pd
 from taipy.gui import Gui, notify
 import requests
+import logging
 
-# Define the function to fetch the forecast from the FastAPI backend
+# Set the logging level to INFO
+logging.basicConfig(level=logging.DEBUG)
+
+# Function to fetch forecast data from FastAPI backend
 def fetch_forecast(ticker: str, days: int):
-    response = requests.post("http://localhost:8000/predict", json={"ticker": ticker})
-    if response.status_code == 200:
-        return response.json()["forecast"]
-    else:
-        notify("error", "Prediction failed. Please check the ticker or train the model first.")
+    try:
+        response = requests.post("http://localhost:8000/predict", json={"ticker": ticker})
+        response.raise_for_status()  # Raise an exception for HTTP errors (e.g., 404, 500)
+        data = response.json()
+        if "forecast" in data:
+            return data["forecast"]
+        else:
+            logging.error("Invalid response format. Forecast data not found.")
+            return {}
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching forecast: {e}")
         return {}
 
-# Define the function to train the model
+# Function to train the model via FastAPI
 def train_model(ticker: str):
-    response = requests.post("http://localhost:8000/train", json={"ticker": ticker})
-    if response.status_code == 200:
-        notify("success", f"Model for {ticker} trained successfully!")
-    else:
-        notify("error", f"Failed to train model for {ticker}")
+    try:
+        response = requests.post("http://localhost:8000/train", json={"ticker": ticker})
+        response.raise_for_status()  # Raise an exception for HTTP errors (e.g., 404, 500)
+        logging.info(f"Model for {ticker} trained successfully!")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to train model for {ticker}: {e}")
 
 # List of common stock tickers
 tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "FB", "TSLA", "NFLX"]
 
 # Define the GUI layout
 layout = """
-<|layout|columns=1|
-<|{forecast_data}|table|>
-<|{image_url}|image|>
+<|text-center|
+#Stock Forecasting App
 |>
 
-<|layout|columns=3|
+<|layout|columns=1 1 1|
 <|Select Ticker|>
 <|{ticker}|selector|lov={tickers}|>
+
+<|text-center|
 
 <|Train Model|button|on_action=train_model_action|>
 
 <|Days to Predict|>
+
 <|{days}|slider|min=1|max=30|>
+
 <|Predict|button|on_action=predict_action|>
 |>
+
+<|{image_url}|image|>
+<|{image_component}|image|>
+|>
+
+<|{forecast_data}|table|>
+
 """
 
 # Define the variables
-forecast_data = {}
+forecast_data = pd.DataFrame(columns=["Date", "Forecast"])
 ticker = "MSFT"
 days = 7
 image_url = ""
+image_component = ""
 
 # Define the action functions
 def predict_action(state):
-    state.forecast_data = fetch_forecast(state.ticker, state.days)
+    forecast_data = fetch_forecast(state.ticker, state.days)
+    # to dataframe
+    forecast_data = pd.DataFrame(forecast_data.items(), columns=["Date", "Forecast"])
+    state.forecast_data = forecast_data
     state.image_url = f"{state.ticker}_plot.png"
+    state.image_component = f"{state.ticker}_plot_components.png"
 
 def train_model_action(state):
     train_model(state.ticker)
